@@ -57,22 +57,28 @@ function custom_plugin_get_user_activity($user_id) {
 }
 
 // Function to retrieve user post titles
-function custom_plugin_get_user_post_titles($user_id) {
+function custom_plugin_get_user_post_data($user_id) {
     $args = array(
         'author' => $user_id,
         'post_type' => 'post', // Replace with your custom post type if needed
         'posts_per_page' => -1, // Retrieve all posts
+        'post-status' => 'publish',
     );
     $user_posts = new WP_Query($args);
-    $post_titles = array();
+    $user_post_data = array();
     if ($user_posts->have_posts()) {
         while ($user_posts->have_posts()) {
             $user_posts->the_post();
-            $post_titles[] = get_the_title();
+            $post_data = array(
+                'title' => get_the_title(),
+                'content' => get_the_content(),
+                'tags' => wp_get_post_tags(get_the_ID(), array('fields' => 'names')),
+            );
+            $user_post_data[] = $post_data;
         }
         wp_reset_postdata();
     }
-    return $post_titles;
+    return $user_post_data;
 }
 
 
@@ -84,7 +90,8 @@ function custom_plugin_ajax_handler() {
     $displayed_user_id = bp_displayed_user_id();
     $user_info = custom_plugin_get_user_info($displayed_user_id);
     $user_activity = custom_plugin_get_user_activity($displayed_user_id);
-    $user_post_titles = custom_plugin_get_user_post_titles($displayed_user_id);
+    $user_post_data = custom_plugin_get_user_post_data($displayed_user_id);
+    // $user_post_contents = get_user_posts($displayed_user_id);
 
     // // Generate and send a downloadable file
 
@@ -96,8 +103,14 @@ function custom_plugin_ajax_handler() {
         echo '<p>' . $activity . '</p>';
     }
     echo '<h3>Posted Articles</h3>';
-    foreach ($user_post_titles as $post_title) {
-        echo '<p>' . esc_html($post_title) . '</p>';
+    // foreach ($user_post_titles as $post_title) {
+    //     echo '<p>' . esc_html($post_title) . '</p>';
+    // }
+    echo '<h3>Post Content</h3>';
+    foreach ($user_post_data as $post_data) {
+        echo '<p><strong>Title:</strong> ' . esc_html($post_data['title']) . '</p>';
+        echo '<p><strong>Tags:</strong> ' . esc_html(implode(', ', $post_data['tags'])) . '</p>';
+        echo '<p><strong>Content:</strong> ' . $post_data['content'] . '</p>';
     }
 
     $output = ob_get_clean();
@@ -107,3 +120,25 @@ function custom_plugin_ajax_handler() {
 }
 add_action('wp_ajax_custom_action', 'custom_plugin_ajax_handler');
 
+// function get_user_posts($user_id) {
+//     $args = array(
+//         'author' => $user_id,
+//         'post_type' => 'post',
+//         'post_per_page' => -1,
+//         'post-status' => 'publish',
+//     );
+
+//     $user_posts = new WP_Query($args);
+
+//     if ($user_posts->have_posts()) {
+//         while ($user_posts->have_posts()) {
+//             $user_posts->the_post();
+
+//             //Display post content or perform other actions.
+//             the_content(); // Display post content.
+//         }
+//         wp_reset_postdata();
+//     } else {
+//         echo "No posts found";
+//     }
+// }
