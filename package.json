@@ -1,0 +1,19 @@
+{
+  "name": "user-data-summary",
+  "version": "1.0.0",
+  "description": "This is for summarizing user info, posts using OpenAI",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \\\"Error: no test specified\\\" && exit 1",
+    "build": "wp-scripts build",
+    "start": "wp-scripts start"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@wordpress/scripts": "^26.13.0"
+  },
+  "dependencies": {
+    "react-router-dom": "^6.16.0"
+  }
+}

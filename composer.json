@@ -1,0 +1,12 @@
+{
+    "name": "thz/gptsummary",
+    "description": "This is for summarizing user info ,posts with OpenAI",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "autoload": {
+        "psr-4": {
+            "Thz\\Gptsummary\\": "includes/"
+        }
+    },
+    "require": {}
+}
