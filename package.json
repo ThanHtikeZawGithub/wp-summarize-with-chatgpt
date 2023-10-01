@@ -11,9 +11,9 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@wordpress/scripts": "^26.13.0"
-  },
-  "dependencies": {
+    "@wordpress/scripts": "^26.13.0",
+    "html2pdf.js": "^0.9.3",
+    "react-paginate": "^8.2.0",
     "react-router-dom": "^6.16.0"
   }
 }

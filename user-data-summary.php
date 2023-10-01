@@ -40,6 +40,22 @@ function custom_plugin_create_summary_table() {
     }
 }
 
+// Register the deactivation hook
+register_deactivation_hook(__FILE__, 'custom_plugin_deactivate');
+
+// Function to run on plugin deactivation
+function custom_plugin_deactivate() {
+    // Delete the custom database table
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'user_summaries';
+
+    // Check if the table exists
+    if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+        // Table exists, so we can delete it
+        $wpdb->query("DROP TABLE $table_name");
+    }
+}
+
 
 //Creating button in buddyboss profile
 function custom_plugin_add_button_to_profile() {
@@ -124,10 +140,17 @@ function custom_plugin_get_user_post_data($user_id) {
             // Summarize the post content using OpenAI
             $content_to_summarize = wp_strip_all_tags( get_the_content());
 
-            $content_summary = generate_summary($content_to_summarize);
-            
-            // Combine the chunk summaries into a single summary
-            $post_data['summary'] = $content_summary;
+            //First check in the database if it already summarized
+            $custom_summary = custom_plugin_get_summary_from_database($content_to_summarize);
+
+            if ($custom_summary) {
+                // If a summary exists in the database, use it
+                $post_data['summary'] = $custom_summary;
+            } else {
+                // If no summary exists in the database, generate and store a new summary
+                $content_summary = generate_summary($content_to_summarize);
+                $post_data['summary'] = $content_summary;
+            }
 
             $user_post_data[] = $post_data;
         }
@@ -136,19 +159,13 @@ function custom_plugin_get_user_post_data($user_id) {
     return $user_post_data;
 }
 
+
 //=================================================================================
 //Function to summarize with chatgpt
 
 function generate_summary($content) {
 
-    // Check if the summary exists in the custom database table
-    $custom_summary = custom_plugin_get_summary_from_database($content);
-
-    if ($custom_summary) {
-        return $custom_summary; // Return summary from the database
-    }
-
-
+    //pre-process the input text to chatgpt 
     $input_chunks = split_text_into_chunks($content);
     $output_chunks = [];
 
@@ -190,7 +207,7 @@ function generate_summary($content) {
     // Store the summary in the custom database table
     custom_plugin_store_summary_in_database($content, $output_summary);
 
-
+    //return the summarized content
     return $output_summary;
 }
 
