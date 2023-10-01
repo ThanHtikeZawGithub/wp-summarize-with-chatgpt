@@ -5,9 +5,41 @@ Description: Summary of the user information ,activity and posts using OpenAI.
 Version: 1.0.0
 */
 
-if ( ! defined( 'WPINC' ) ) {
-	die;
+
+register_activation_hook(__FILE__, 'custom_plugin_create_summary_table');
+
+//=================================================================================
+// Create a custom database table
+
+function custom_plugin_create_summary_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'user_summaries';
+
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        time_stamp date NOT NULL,
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        content_hash varchar(32) NOT NULL,
+        summary text NOT NULL,
+        PRIMARY KEY  (id),
+        UNIQUE KEY content_hash (content_hash)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+      // Check if there was an error during table creation
+      if (empty($wpdb->last_error)) {
+        // Table created successfully
+        return true;
+    } else {
+        // Table creation failed, display the error
+        $error_message = $wpdb->last_error;
+        error_log('Table creation error: ' . $error_message); // Log the error
+        return false;
+    }
 }
+
 
 //Creating button in buddyboss profile
 function custom_plugin_add_button_to_profile() {
@@ -43,7 +75,7 @@ function custom_plugin_get_user_info($user_id) {
 //=============================================================================
 //preprocess text for gpt summarize
 
-function split_text_into_chunks($text, $max_chunk_size = 2048) {
+function split_text_into_chunks($text, $max_chunk_size = 2049) {
     $chunks = [];
     $current_chunk = "";
     $sentences = preg_split('/(?<=[.!?])\s+/', $text, -1, PREG_SPLIT_NO_EMPTY);
@@ -88,19 +120,14 @@ function custom_plugin_get_user_post_data($user_id) {
                 'tags' => wp_get_post_tags($post_id, array('fields' => 'names')),
             );
 
+
             // Summarize the post content using OpenAI
             $content_to_summarize = wp_strip_all_tags( get_the_content());
-            $content_chunks = split_text_into_chunks($content_to_summarize);
-            $chunk_summaries = array(); // Initialize as an empty array
 
-            foreach ($content_chunks as $chunk) {
-                // Summarize each chunk and store the summary
-                $summary = custom_plugin_generate_summary($chunk);
-                $chunk_summaries[] = $summary;
-            }
+            $content_summary = generate_summary($content_to_summarize);
             
             // Combine the chunk summaries into a single summary
-            $post_data['summary'] = implode(' ', $chunk_summaries);
+            $post_data['summary'] = $content_summary;
 
             $user_post_data[] = $post_data;
         }
@@ -112,40 +139,108 @@ function custom_plugin_get_user_post_data($user_id) {
 //=================================================================================
 //Function to summarize with chatgpt
 
-function custom_plugin_generate_summary($content) {
-    // Make an API call to OpenAI to generate a summary
-    $api_key = get_option('custom_plugin_api_key');
-    $engine = 'text-davinci-002'; // Choose an appropriate engine
+function generate_summary($content) {
 
-    $response = wp_safe_remote_post(
-        'https://api.openai.com/v1/engines/' . $engine . '/completions',
-        array(
-            'headers' => array(
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type' => 'application/json',
-            ),
-            'body' => json_encode(array(
-                'prompt' => "Please summarize the following text:\n$content\n\nSummary:",
-                'temperature' => 0.5,
-                'max_tokens' => 1024, // Adjust the number of tokens as needed
-            )),
-        )
-    );
+    // Check if the summary exists in the custom database table
+    $custom_summary = custom_plugin_get_summary_from_database($content);
 
-    if (is_wp_error($response)) {
-        return 'Error: Unable to generate summary.';
+    if ($custom_summary) {
+        return $custom_summary; // Return summary from the database
     }
 
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body, true);
 
-    if (isset($data['choices'][0]['text'])) {
-        return $data['choices'][0]['text'];
-    } else {
-        return 'Summary not available. API response: ' . json_encode($data);
+    $input_chunks = split_text_into_chunks($content);
+    $output_chunks = [];
+
+    foreach ($input_chunks as $chunk) {
+        $api_key = get_option('custom_plugin_api_key'); // Replace with your actual API key
+        $engine = 'text-curie-001'; // Use an appropriate engine
+
+        $response = wp_safe_remote_post(
+            'https://api.openai.com/v1/engines/' . $engine . '/completions',
+            array(
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $api_key,
+                    'Content-Type' => 'application/json',
+                ),
+                'body' => json_encode(array(
+                    'prompt' => "Please summarize the following text:\n$chunk\n\nSummary:",
+                    'temperature' => 0.5,
+                    'max_tokens' => 1024,
+                    'n' => 1,
+                    'stop' => null,
+                )),
+            )
+        );
+
+        if (is_wp_error($response)) {
+            return 'Error: Unable to generate summary.';
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (isset($data['choices'][0]['text'])) {
+            $summary = $data['choices'][0]['text'];
+            $output_chunks[] = $summary;
+        }
     }
+    $output_summary = implode(' ', $output_chunks);
+
+    // Store the summary in the custom database table
+    custom_plugin_store_summary_in_database($content, $output_summary);
+
+
+    return $output_summary;
 }
 
+
+//=================================================================================
+// Function to retrieve a summary from the custom database table
+
+function custom_plugin_get_summary_from_database($content) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'user_summaries';
+    $content_hash = md5($content);
+
+    $sql = $wpdb->prepare("SELECT summary FROM $table_name WHERE content_hash = %s", $content_hash);
+    $result = $wpdb->get_var($sql);
+
+    return $result;
+}
+
+//=================================================================================
+// Function to store a summary in the custom database table
+
+function custom_plugin_store_summary_in_database($content, $summary) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'user_summaries';
+    $content_hash = md5($content);
+    
+    $data = array(
+        'content_hash' => $content_hash,
+        'summary' => $summary,
+    );
+
+    $format = array(
+        '%s',
+        '%s',
+    );
+
+    $wpdb->insert($table_name, $data, $format);
+}
+
+
+// Disable REST API for non-logged-in users
+function restrict_rest_api_for_non_logged_in_users($access) {
+    if (!is_user_logged_in()) {
+        // Disable REST API for non-logged-in users
+        return new WP_Error('rest_api_disabled', 'REST API is disabled for non-logged-in users', array('status' => 401));
+    }
+    return $access;
+}
+
+add_filter('rest_authentication_errors', 'restrict_rest_api_for_non_logged_in_users');
 
 //===================================================================================
 // Register a custom REST API endpoint
@@ -170,12 +265,14 @@ function custom_plugin_get_user_data($request) {
     // Retrieve user information, activity, and post titles here
     $user_info = custom_plugin_get_user_info($user_id);
     $user_post_data = custom_plugin_get_user_post_data($user_id);
+    $total_items = count_user_posts($user_id, 'post');
 
 
     // Construct an array with user data
     $user_data = array(
         'user_info' => $user_info,
         'user_post_data' => $user_post_data,
+        'total_items' => $total_items, // Total number of items
     );
 
     // Return user data as a JSON response
@@ -206,8 +303,8 @@ function custom_plugin_user_data_shortcode($atts) {
 add_shortcode('custom_user_data', 'custom_plugin_user_data_shortcode');
 
 
-//==================================================================================================
-//Function to create admin menu
+//=================================================================================
+// Function to create an admin menu
 
 function custom_plugin_menu() {
     add_menu_page(
@@ -217,12 +314,21 @@ function custom_plugin_menu() {
         'custom-plugin-api-settings',
         'custom_plugin_api_settings_page'
     );
+
+    // Add a submenu item for resetting/deleting data
+    add_submenu_page(
+        'custom-plugin-api-settings',
+        'Reset/ Delete Data',
+        'Reset/ Delete Data',
+        'manage_options',
+        'custom-plugin-reset-data',
+        'custom_plugin_reset_data_page'
+    );
 }
 add_action('admin_menu', 'custom_plugin_menu');
 
-
-//============================================================================================
-//Function to add in admin setting page
+//=================================================================================
+// Function to create an admin settings page
 
 function custom_plugin_api_settings_page() {
     // Check if the user is allowed to access the settings page
@@ -255,6 +361,52 @@ function custom_plugin_api_settings_page() {
     <?php
 }
 
+//=================================================================================
+// Function to create a reset/delete data page in the admin backend
+
+function custom_plugin_reset_data_page() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+
+    if (isset($_POST['reset_data'])) {
+        // Handle the reset action here (e.g., delete all data from the custom database table)
+        custom_plugin_delete_summary_table();
+        echo '<div class="updated"><p>Data reset successfully!</p></div>';
+    }
+
+    if (isset($_POST['delete_data'])) {
+        // Handle the delete action here (e.g., delete selected data from the custom database table)
+        // Implement your logic here to delete specific data as needed
+        echo '<div class="updated"><p>Data deleted successfully!</p></div>';
+    }
+
+    // Display the reset/delete data options form
+    ?>
+    <div class="wrap">
+        <h1>Reset/ Delete Data</h1>
+        <form method="post" action="">
+            <p><strong>Reset All Data:</strong> This will delete all summarized content from the custom database table.</p>
+            <input type="submit" class="button button-primary" name="reset_data" value="Reset All Data" onclick="return confirm('Are you sure you want to reset all data? This action cannot be undone.');">
+            <br><br>
+            <p><strong>Delete Specific Data:</strong> You can implement logic here to delete specific data from the custom database table.</p>
+            <input type="submit" class="button button-primary" name="delete_data" value="Delete Specific Data">
+        </form>
+    </div>
+    <?php
+}
+
+//=================================================================================
+// Function to delete the custom database table
+
+function custom_plugin_delete_summary_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'custom_plugin_summaries';
+
+    // Drop the custom database table if it exists
+    $wpdb->query("DROP TABLE IF EXISTS $table_name");
+}
+
 
 //Function to enqueue javascript
 
@@ -263,4 +415,6 @@ function summary_admin_enqueue_scripts() {
     wp_enqueue_script( 'jobplace-script', plugin_dir_url( __FILE__ ) . 'build/index.js', array( 'wp-element' ), '1.0.0', true );
 }
 add_action('wp_enqueue_scripts', 'summary_admin_enqueue_scripts');
+
+
 
