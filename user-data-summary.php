@@ -3,6 +3,7 @@
 Plugin Name: Summarize user information
 Description: Summary of the user information ,activity and posts using OpenAI.
 Version: 1.0.0
+Author: Than Htike Zaw
 */
 
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import html2pdf from 'html2pdf.js';
 
 const Dashboard = () => {
   const [searchParams] = useSearchParams();
@@ -40,6 +41,31 @@ const Dashboard = () => {
     setCurrentPage(pageNumber);
   };
 
+  // Function to generate and download PDF with dynamic filename
+  const generatePDF = () => {
+    const content = document.getElementById('user-summary-app');
+
+    // Make sure the content element is present before proceeding
+    if (!content) {
+      console.error('Content element not found');
+      return;
+    }
+
+    const pdfOptions = {
+      margin: 10,
+      filename: `${userData.user_info.username}-activities.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2 },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    };
+
+    // Use the updated html2pdf API to generate PDF
+    html2pdf()
+      .from(content)
+      .set(pdfOptions)
+      .save();
+  };
+
   return (
     <div className="dashboard-container">
       {userData ? (
@@ -50,6 +76,8 @@ const Dashboard = () => {
             <p className='user-info_username'><strong>Username:</strong> {userData.user_info.username}</p>
             <p><strong>Email:</strong> {userData.user_info.email}</p>
           </div>
+           {/* Download button */}
+           <button onClick={generatePDF}>Download as PDF</button>
           <div className="posted-articles">
             {/* Display posted articles */}
             <h3 className="posted-articles__title">Posted Articles ({userData.total_items})</h3>
